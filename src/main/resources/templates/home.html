@@ -5,7 +5,6 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"/>
 </head>
 <body class="bg-light">
-
 <nav class="navbar navbar-expand-lg navbar-dark bg-primary mb-4">
     <div class="container-fluid">
         <a class="navbar-brand" th:href="@{/banking/}">MyBank</a>
@@ -19,10 +18,9 @@
         </div>
     </div>
 </nav>
-
 <div class="container text-center">
     <h2>Hello, <span class="text-primary" th:text="${username}">User</span>!</h2>
-    <p>Your balance: <strong th:text="${balance}">0</strong> USD</p>
+    <p>Your balance: <strong id="balance-display" th:text="${balance}">0.00</strong> USD</p>
     <p>Your IBAN: <strong class="text-info" th:text="${iban}">BC123412340000001234</strong></p>
 </div>
 
@@ -43,6 +41,23 @@
         </tbody>
     </table>
 </div>
+<script>
+    function fetchBalance() {
+        fetch('/banking/api/balance')
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Failed to fetch balance');
+                }
+                return response.json();
+            })
+            .then(data => {
+                document.querySelector('#balance-display').textContent = data.balance.toFixed(2);
+            })
+            .catch(error => console.error('Error fetching balance:', error));
+    }
+
+    setInterval(fetchBalance, 5000);
+</script>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>

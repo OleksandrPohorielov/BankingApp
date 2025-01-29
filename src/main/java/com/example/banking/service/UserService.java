@@ -3,12 +3,14 @@ package com.example.banking.service;
 import com.example.banking.entity.User;
 import com.example.banking.exceptions.*;
 import com.example.banking.repository.UserRepository;
+import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
-
+import java.util.Optional;
+import java.util.Random;
 
 @Service
 public class UserService {
@@ -19,45 +21,41 @@ public class UserService {
     @Autowired
     private BCryptPasswordEncoder passwordEncoder;
 
-    public User registerUser(String username, String rawPassword, String firstName, String lastName) {
-        if (userRepository.findByUsername(username).isPresent()) {
-            throw new UserAlreadyExistsException("Username already exists.");
+    public String generateIban() {
+        String prefix = "BC";
+        Random random = new Random();
+        StringBuilder ibanBuilder = new StringBuilder(prefix);
+        for (int i = 0; i < 16; i++) {
+            ibanBuilder.append(random.nextInt(10));
+        }
+        return ibanBuilder.toString();
+    }
+
+    public void registerUser(String username, String password, String firstName, String lastName) {
+        Optional<User> existingUser = userRepository.findByUsername(username);
+        if (existingUser.isPresent()) {
+            throw new UserAlreadyExistsException("User with username " + username + " already exists.");
         }
 
-        String encodedPassword = passwordEncoder.encode(rawPassword);
         String iban = generateIban();
 
-        User user = new User(username, encodedPassword, firstName, lastName, iban, 0.0);
-        return userRepository.save(user);
+        User newUser = new User();
+        newUser.setUsername(username);
+        newUser.setPassword(passwordEncoder.encode(password));
+        newUser.setFirstName(firstName);
+        newUser.setLastName(lastName);
+        newUser.setBalance(0.0);
+        newUser.setIban(iban);
+
+        userRepository.save(newUser);
     }
 
-    public void transfer(String fromUsername, String toUsername, String toIban, double amount) {
-        validateAmount(amount);
 
-        User fromUser = userRepository.findByUsername(fromUsername)
-                .orElseThrow(() -> new UserNotFoundException("Sender not found."));
-        User toUser = userRepository.findByUsername(toUsername)
-                .orElseThrow(() -> new UserNotFoundException("Recipient not found."));
 
-        if (!toUser.getIban().equals(toIban)) {
-            throw new InvalidIbanException("Recipient IBAN does not match.");
-        }
-
-        if (fromUser.getBalance() < amount) {
-            throw new InsufficientBalanceException("Insufficient balance.");
-        }
-
-        fromUser.setBalance(fromUser.getBalance() - amount);
-        toUser.setBalance(toUser.getBalance() + amount);
-
-        userRepository.save(fromUser);
-        userRepository.save(toUser);
-    }
-
+    @Transactional
     public void deposit(String username, double amount) {
-        validateAmount(amount);
-        if (amount <= 0) {
-            throw new InvalidAmountException("You have to deposit an amount greater than 0.");
+        if (amount <=0) {
+            throw new InvalidAmountException("Deposit amount must be greater than 0.");
         }
 
         User user = userRepository.findByUsername(username)
@@ -67,31 +65,55 @@ public class UserService {
         userRepository.save(user);
     }
 
+    @Transactional
     public void withdraw(String username, double amount) {
-        validateAmount(amount);
+        if (amount <= 0) {
+            throw new InvalidAmountException("Withdrawal amount must be greater than 0.");
+        }
 
         User user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new UserNotFoundException("User not found."));
 
         if (user.getBalance() < amount) {
-            throw new InsufficientBalanceException("Insufficient balance.");
+            throw new InsufficientBalanceException("You cannot withdraw more than your available balance.");
         }
 
         user.setBalance(user.getBalance() - amount);
         userRepository.save(user);
     }
 
+    @Transactional
+    public void transfer(String fromUsername, String toUsername, double amount, String toIban) {
+        if (amount <= 0) {
+            throw new InvalidAmountException("Transfer amount must be greater than 0.");
+        }
+
+        User sender = userRepository.findByUsername(fromUsername)
+                .orElseThrow(() -> new UserNotFoundException("Sender not found."));
+        User receiver = userRepository.findByUsername(toUsername)
+                .orElseThrow(() -> new UserNotFoundException("Receiver not found."));
+
+        if (!receiver.getIban().equals(toIban)) {
+            throw new InvalidIbanException("The provided IBAN does not match the recipient.");
+        }
+
+        if (sender.getBalance() < amount) {
+            throw new InsufficientBalanceException("Insufficient balance for transfer.");
+        }
+
+        sender.setBalance(sender.getBalance() - amount);
+        receiver.setBalance(receiver.getBalance() + amount);
+
+        userRepository.save(sender);
+        userRepository.save(receiver);
+    }
+
+    public User getUserByUsername(String username) {
+        return userRepository.findByUsername(username)
+                .orElseThrow(() -> new UserNotFoundException("User not found."));
+    }
+
     public List<User> getAllUsers() {
         return userRepository.findAll();
-    }
-
-    private void validateAmount(double amount) {
-        if (amount <= 0) {
-            throw new InvalidAmountException("Amount must be greater than zero.");
-        }
-    }
-
-    private String generateIban() {
-        return "BC" + (int) (Math.random() * 1_000_000_000);
     }
 }
